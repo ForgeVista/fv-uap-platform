@@ -1,0 +1,21 @@
+name: uap_platform
+version: "1.0"
+config-version: 2
+
+profile: uap_platform
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  uap_platform:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

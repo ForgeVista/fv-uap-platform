@@ -1,0 +1,164 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: fv_uap_postgres
+    restart: unless-stopped
+    env_file:
+      - .env.example
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dagster}
+      POSTGRES_USER: ${POSTGRES_USER:-dagster}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dagster}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - orchestration
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dagster} -d ${POSTGRES_DB:-dagster}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: fv_uap_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - orchestration
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dagster-webserver:
+    build:
+      context: ./dagster
+      dockerfile: Dockerfile
+    container_name: fv_uap_dagster_webserver
+    restart: unless-stopped
+    env_file:
+      - .env.example
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-f", "/opt/dagster/app/definitions.py"]
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./dagster:/opt/dagster/app
+      - ./dbt:/opt/dbt
+      - dagster_home:/opt/dagster/dagster_home
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - orchestration
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dagster-daemon:
+    build:
+      context: ./dagster
+      dockerfile: Dockerfile
+    container_name: fv_uap_dagster_daemon
+    restart: unless-stopped
+    env_file:
+      - .env.example
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    command: ["dagster-daemon", "run", "-f", "/opt/dagster/app/definitions.py"]
+    volumes:
+      - ./dagster:/opt/dagster/app
+      - ./dbt:/opt/dbt
+      - dagster_home:/opt/dagster/dagster_home
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - orchestration
+    healthcheck:
+      test: ["CMD-SHELL", "dagster-daemon health-check > /dev/null 2>&1"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+
+  dagster-api:
+    build:
+      context: ./dagster
+      dockerfile: Dockerfile
+    container_name: fv_uap_dagster_api
+    restart: unless-stopped
+    env_file:
+      - .env.example
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    command: ["dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-f", "/opt/dagster/app/definitions.py"]
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./dagster:/opt/dagster/app
+      - ./dbt:/opt/dbt
+      - dagster_home:/opt/dagster/dagster_home
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - orchestration
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 4000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dbt-runner:
+    image: ghcr.io/dbt-labs/dbt-postgres:latest
+    container_name: fv_uap_dbt_runner
+    restart: unless-stopped
+    env_file:
+      - .env.example
+    environment:
+      DBT_PROFILES_DIR: /opt/dbt
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    command: ["tail", "-f", "/dev/null"]
+    volumes:
+      - ./dbt:/opt/dbt
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - orchestration
+    healthcheck:
+      test: ["CMD-SHELL", "dbt --version > /dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  orchestration:
+    name: fv_uap_orchestration
+
+volumes:
+  postgres_data:
+  dagster_home:

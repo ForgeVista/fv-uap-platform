@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: example_stg
+    description: "Example staging model for scaffold validation."
+    columns:
+      - name: example_id
+        tests:
+          - not_null
+
+  - name: example_mart
+    description: "Example mart model built from staging."
+    columns:
+      - name: example_id
+        tests:
+          - not_null
